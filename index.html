@@ -1,0 +1,755 @@
+<!doctype html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="/style.css">
+    <script src="/sc.js" defer></script>
+    <meta name="description" content="Spell Tool for CasioFx">
+<title>Spell Tool</title>
+
+<style>
+#input.limit {
+    border: 2px solid red !important;
+}
+
+.section {
+    margin-bottom: 20px;
+}
+
+.label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.hint {
+    font-size: 13px;
+    opacity: 0.75;
+    margin: 6px 0 0;
+}
+
+.btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.btn-row button {
+    flex: 1;
+}
+</style>
+
+</head>
+<body>
+<p>Model: Casio FX 580 VN X</p>
+
+<div class="section">
+  <div class="label-row">
+    <b>Text to Spell</b>
+    <span id="charCount">0/17</span>
+  </div>
+  <input id="input" type="text" placeholder="Text to Spell" style="width:100%; border-radius: 5px; font-size: 18px;">
+  <p class="hint">Max 1 Line, 17 Text.</p>
+</div>
+
+<div class="btn-row">
+  <button onclick="compile()">Spell</button>
+  </div>
+
+<hr>
+
+<div class="section">
+  <h3>Result</h3>
+  <textarea id="out" rows="25" style="width: 100%;" readonly></textarea>
+</div>
+
+<script>
+
+const input = document.getElementById("input");
+const MAX_LEN = 17;
+const charCount = document.getElementById("charCount");
+const copyBtn = document.getElementById("copyBtn");
+let rawOutput = "";
+
+function updateCharCount(){
+    const len = input.value.length;
+    charCount.textContent = `${Math.min(len, MAX_LEN)}/${MAX_LEN}`;
+}
+
+input.addEventListener("input", function() {
+    if (this.value.length > MAX_LEN) {
+        this.value = this.value.slice(0, MAX_LEN);
+        this.classList.add("limit");
+    } else {
+        this.classList.remove("limit");
+    }
+    updateCharCount();
+});
+
+updateCharCount();
+
+/* =========================================================================
+   CÁC NÚT BẤM — mỗi nút là 1 biến chữ.
+   Muốn đổi cách hiển thị 1 nút (vd "[CALC]" -> "CALC") thì chỉ sửa ở đây.
+   Dùng: S(x, alpha, calc)  ->  "[x] [alpha] [CALC]"
+   ========================================================================= */
+const KEYS = {
+  // chữ / chức năng
+  x:        "[x]",
+  alpha:    "[alpha]",
+  calc:     "[CALC]",
+  shift:    "[shift]",
+  menu:     "[menu]",
+  ac:       "[AC]",
+  del:      "[DEL]",
+  eq:       "[=]",
+  dot:      "[.]",
+  neg:      "[(-)]",
+  lpar:     "[(]",
+  rpar:     "[)]",
+  integral: "[∫]",
+  exp10:    "[×10]",
+  plus:     "[+]",
+  dms:      "[□ ' \"]",
+  recip:    "[x⁻¹]",
+  // mũi tên
+  left:     "[<]",
+  right:    "[>]",
+  up:       "[∧]",
+  down:     "[∨]",
+  // số
+  n0: "[0]", n1: "[1]", n2: "[2]", n3: "[3]", n4: "[4]",
+  n5: "[5]", n6: "[6]", n7: "[7]", n8: "[8]", n9: "[9]",
+};
+
+// Nối nhiều nút thành 1 chuỗi, cách nhau bởi dấu cách
+const S = (...keys) => keys.join(' ');
+
+/* =========================================================================
+   DỮ LIỆU chars.txt — nhúng nguyên văn từ file gốc
+   ========================================================================= */
+const CHARS_TXT = `20 :   : [shift] [8] [3] [4]
+2F : /
+41 : A : [Ans]
+42 : B : [alpha] [(-)]
+43 : C : [alpha] [□ '  "]
+44 : D : [alpha] [x^-1]
+45 : E : [alpha] [sin]
+46 : F : [alpha] [cos]
+47 : G : [alpha] [tan]
+48 : H : [x]
+49 : I : [alpha] [)]
+4A : J : [alpha] [Ans]
+4B : K : [alpha] [S<=>D]
+4C : L
+4D : M
+4E : N
+4F : O
+50 : P : [shift] [x]
+51 : Q : [∫]
+52 : R : [shift] [∫]
+53 : S : [alpha] [x]
+54 : T
+55 : U
+56 : V
+57 : W
+58 : X
+59 : Y
+5A : Z
+61 : a
+62 : b
+63 : c
+64 : d
+65 : e
+66 : f
+67 : g
+68 : h : [shift] [(]
+69 : i : [shift] [0]
+6A : j
+6B : k
+6C : l : [OPTN] [1] [1]
+6D : m : [OPTN] [1] [2]
+6E : n : [OPTN] [1] [3]
+6F : o : [OPTN] [1] [4]
+70 : p : [OPTN] [1] [5]
+71 : q : [OPTN] [1] [6]
+72 : r : [shift] [ln]
+73 : s : [shift] [log▪□]
+74 : t : [√]
+75 : u : [ln]
+76 : v : [shift] [√]
+77 : w : [sin]
+78 : x : [cos]
+79 : y : [tan]
+7A : z : [shift] [sin]
+30 : 0 : [0]
+31 : 1 : [1]
+32 : 2 : [2]
+33 : 3 : [3]
+34 : 4 : [4]
+35 : 5 : [5]
+36 : 6 : [6]
+37 : 7 : [7]
+38 : 8 : [8]
+39 : 9 : [9]
+F4 10 : Ạ
+F4 11 : Ắ
+F4 12 : Ằ
+F4 13 : Ặ
+F4 14 : Ấ
+F4 15 : Ầ
+F4 16 : Ẩ
+F4 17 : Ậ
+F4 18 : Ẽ
+F4 19 : Ẹ
+F4 1A : Ế
+F4 1B : Ề
+F4 1C : Ể
+F4 1D : Ễ
+F4 1E : Ệ
+F4 1F : Ố
+F4 20 : Ồ
+F4 21 : Ổ
+F4 22 : Ỗ
+F4 23 : Ộ
+F4 24 : Ợ
+F4 25 : Ớ
+F4 26 : Ờ
+F4 27 : Ở
+F4 28 : Ị
+F4 29 : Ỏ
+F4 2A : Ọ
+F4 2B : Ỉ
+F4 2C : Ủ
+F4 2D : Ũ
+F4 2E : Ụ
+F4 2F : Ỳ
+F4 30 : Õ
+F4 31 : ắ
+F4 32 : ằ
+F4 33 : ặ
+F4 34 : ấ
+F4 35 : ầ
+F4 36 : ẩ
+F4 37 : ậ
+F4 38 : ẽ
+F4 39 : ẹ
+F4 3A : ế
+F4 3B : ề
+F4 3C : ể
+F4 3D : ễ
+F4 3E : ệ
+F4 3F : ố
+F4 40 : ồ
+F4 41 : ổ
+F4 42 : ỗ
+F4 43 : Ỡ
+F4 44 : Ơ
+F4 45 : ộ
+F4 46 : ờ
+F4 47 : ở
+F4 48 : ị
+F4 49 : Ự
+F4 4A : Ứ
+F4 4B : Ừ
+F4 4C : Ử
+F4 4D : ơ
+F4 4E : ớ
+F4 4F : Ư
+F4 50 : À
+F4 51 : Á
+F4 52 : Â
+F4 53 : Ã
+F4 54 : Ả
+F4 55 : Ă
+F4 56 : ẳ
+F4 57 : ẵ
+F4 58 : È
+F4 59 : É
+F4 5A : Ê
+F4 5B : Ẻ
+F4 5C : Ì
+F4 5D : Í
+F4 5E : Ĩ
+F4 5F : ỳ
+F4 60 : Đ
+F4 60 : Ð
+F4 61 : ứ
+F4 62 : Ò
+F4 63 : Ó
+F4 64 : Ô
+F4 65 : ạ
+F4 66 : ỷ
+F4 67 : ừ
+F4 68 : ử
+F4 69 : Ù
+F4 6A : Ú
+F4 6B : ỹ
+F4 6C : ỵ
+F4 6D : Ý
+F4 6E : ỡ
+F4 6F : ư
+F4 70 : à
+F4 71 : á
+F4 72 : â
+F4 73 : ã
+F4 74 : ả
+F4 75 : ă
+F4 76 : ữ
+F4 77 : ẫ
+F4 78 : è
+F4 79 : é
+F4 7A : ê
+F4 7B : ẻ
+F4 7C : ì
+F4 7D : í
+F4 7E : ĩ
+F4 7F : ỉ
+F4 80 : đ
+F4 81 : ự
+F4 82 : ò
+F4 83 : ó
+F4 84 : ô
+F4 85 : õ
+F4 86 : ỏ
+F4 87 : ọ
+F4 88 : ụ
+F4 89 : ù
+F4 8A : ú
+F4 8B : ũ
+F4 8C : ủ
+F4 8D : ý
+F4 8E : ợ
+F4 8F : Ữ
+F4 90 : Ẳ
+F4 91 : Ẵ
+F4 92 : Ẫ
+F4 93 : Ỷ
+F4 94 : Ỹ
+F4 95 : Ỵ
+21 : !
+22 : "
+23 : #
+24 : ×
+25 : %
+26 : ÷
+27 : '
+28 : (
+29 : )
+2A : ·
+2B : +
+2C : ,
+2D : —
+2E : .
+3A : :
+3B : ;
+3C : <
+3D : =
+3E : >
+3F : ?
+40 : @
+5B : [
+5C : ▫
+5D : ]
+5E : ^
+5F : _
+60 : -
+7B : {
+7D : }
+7E : ~
+7F : ⊢
+80 : 𝒊
+81 : 𝓮
+83 : ¹⁰
+84 : ∞
+85 : °
+88 : ∠
+89 : 𝑥̄
+8A : 𝑦̄
+8D : →
+8E : ∏
+8F : ⇒
+94 : ≤
+95 : ≠
+96 : ≥
+CC : ▮
+CD : ▯`;
+
+const CHARS_LINES = CHARS_TXT.split("\n");
+
+const DATA_SLOTS = ['__', '_!', '!_', '!!'];
+const isDigit = ch => /[0-9]/.test(ch);
+const isAlpha = ch => /[A-Za-z]/.test(ch);
+const isDataSlot = tok => DATA_SLOTS.includes(tok);
+
+function isValidSlot(byte, slot) {
+  if (slot.length === 2) {
+    if (slot[0] === '!' && !isDigit(byte[0])) return false;
+    if (slot[1] === '!' && !isDigit(byte[byte.length - 1])) return false;
+  }
+  return true;
+}
+
+function fillTemplate(template, hexList, hexIndex) {
+  const filled = [];
+  let i = hexIndex;
+  let wp = 0;
+  while (wp < template.length) {
+    const part = template[wp];
+    if (isDataSlot(part)) {
+      if (i >= hexList.length) return { filled, i, done: true };
+      const raw = hexList[i];
+      const bytesPair = raw.split(' ').filter(Boolean);
+      if (bytesPair.length === 2) {
+        const [b1, b2] = bytesPair;
+        const nextPart = wp + 1 < template.length ? template[wp + 1] : null;
+        if (nextPart !== null && isDataSlot(nextPart) && isValidSlot(b1, part) && isValidSlot(b2, nextPart)) {
+          filled.push(b1); filled.push(b2);
+          i += 1; wp += 2; continue;
+        } else {
+          filled.push('20'); wp += 1; continue;
+        }
+      }
+      const byte = raw;
+      if (isValidSlot(byte, part)) {
+        filled.push(byte); i += 1; wp += 1; continue;
+      } else {
+        filled.push('20'); wp += 1; continue;
+      }
+    } else {
+      if (i >= hexList.length) return { filled, i, done: true };
+      filled.push(part); wp += 1;
+    }
+  }
+  return { filled, i, done: i >= hexList.length };
+}
+
+const CHARST = ['a','b','c','d','e','f','g','j','k','L','M','N','O','T','U','V','W','X','Y','Z'];
+const J = [
+  ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  '!','"','#',' ',
+  ..."0123456789"
+];
+
+function spellVarVn(line) {
+  // Lấy các nút ra thành biến riêng để dùng trong hàm này
+  const {
+    x, alpha, calc, shift, menu, ac, del, eq, dot, neg, lpar, rpar,
+    integral, exp10, plus, dms, recip, left, right, up, down,
+    n0, n1, n2, n3, n4, n5, n6, n7, n8, n9,
+  } = KEYS;
+  const DIGITS = [n0, n1, n2, n3, n4, n5, n6, n7, n8, n9];
+
+  let buf = '';
+  const P = (text = '', end = '\n') => { buf += text + end; };
+  // Tiêu đề mỗi bước: đường kẻ + tên bước
+  const H = (title) => { P(); P('━━━━━━━━━━━━━━━━━━━━━━━━'); P(title); };
+
+  const charList = [];
+  let char1 = [];
+  let ds = line.split('');
+  const originalLine = line;
+  const hexList = [];
+  const foundKeys = {};
+
+  if (line.length > 17) {
+    P("Câu bạn vừa nhập quá 1 dòng (17 kí tự) ! ");
+    return buf;
+  }
+
+  // ---- Thu thập kí tự đặc biệt (không gõ được bằng bàn phím) ----
+  const neededChars = [];
+  for (const ch of line) neededChars.push(ch === ' ' ? 'Space' : ch);
+
+  for (const a of line) {
+    if (CHARST.includes(a)) charList.push(a);
+    if (!J.includes(a)) charList.push(a);
+  }
+
+  const missingChars = [];
+  const hexMap = [];
+  for (const char of charList) {
+    let found = false;
+    for (let raw of CHARS_LINES) {
+      const ln = raw.trim();
+      const parts = ln.split(" : ");
+      if (parts.length >= 2 && parts[1] === char) {
+        hexMap.push(`${char} = ${parts[0]}`);
+        found = true;
+        hexList.push(parts[0]);
+        break;
+      }
+    }
+    if (!found && !missingChars.includes(char)) missingChars.push(char);
+  }
+
+  // Có kí tự không tồn tại trong chars.txt -> chỉ báo lỗi, không in gì thêm
+  if (missingChars.length > 0) {
+    return `LỖI: không tìm thấy kí tự ${missingChars.map(c => `'${c}'`).join(', ')}.`;
+  }
+
+  for (let raw of CHARS_LINES) {
+    const ln = raw.trim();
+    if (ln.includes(" : ")) {
+      const parts = ln.split(" : ");
+      if (parts.length === 3) {
+        const [hexCode, char, button] = parts;
+        if (ds.includes(char)) foundKeys[char] = button;
+      }
+    }
+  }
+
+  const c = ds.length;
+  const space = 17 - c;
+  if (space % 2 === 0) {
+    const a = space / 2;
+    ds = Array(a).fill(' ').concat(ds).concat(Array(a).fill(' '));
+  } else {
+    const a = (space - 1) / 2;
+    const b = a + 1;
+    ds = Array(b).fill(' ').concat(ds).concat(Array(a).fill(' '));
+  }
+  const strSpell = ds.join('');
+
+  P(`Kí tự cần: ${neededChars.join(' ')}`);
+  P(`Kí tự lấy qua Biến: ${charList.length ? charList.join(' ') : '(không có)'}`);
+  if (hexMap.length) P(` hex: ${hexMap.join(' · ')}\n`);
+  P(`Hiển thị: ${strSpell.replace(/ /g, '\\')}`);
+  P();
+  P(`Ký hiệu: ${down} xuống · ${left} trái · ${right} phải · ${up} lên`);
+
+  for (const b of hexList) {
+    for (const ch of b) {
+      if (isAlpha(ch)) char1.push(ch);
+    }
+  }
+  char1.push('C');
+  hexList.push("3C");
+  hexList.push("23");
+
+  // ---- Tính trước việc nhồi hex vào biến A, B, C ----
+  // Nếu không đủ chỗ thì chỉ báo lỗi, không in gì thêm.
+  const template_A = ['1.0000', '__', '__', '_!', '!_', '__', '×10', '!!'];
+  const template_B = ['1.', '__', '__', '__', '__', '_!', '!_', '__', '×10', '!!'];
+  const template_C = ['1.', '__', '__', '__', '__', '_!', '!_', '__', '×10', '!!'];
+
+  const filledOutputs = [];
+  let hexIndex = 0;
+  let listLo = [];
+  let overflowed = true;
+  for (const [label, template] of [['A', template_A], ['B', template_B], ['C', template_C]]) {
+    const { filled: result, i: newIndex, done } = fillTemplate(template, hexList, hexIndex);
+    hexIndex = newIndex;
+    filledOutputs.push(`${label} = ${result.join(' ')}`);
+    for (const z of result) listLo.push(z);
+    if (done) { overflowed = false; break; }
+  }
+
+  if (overflowed) {
+    return `LỖI: câu này cần nhiều hex hơn cả 3 biến A, B, C chứa được (còn dư ${hexList.length - hexIndex} byte hex chưa nhồi hết). Vui lòng thử câu ngắn hơn hoặc ít kí tự đặc biệt hoặc kí tự tiếng Việt hơn.`;
+  }
+
+  // ---- BƯỚC 1-3 ----
+  H('BƯỚC 1 · Reset máy');
+  P(S(shift, n9, n3, eq, eq));
+
+  H('BƯỚC 2 · Vào LineI/O');
+  P(S(shift, menu, n1, n3));
+
+  H('BƯỚC 3 · Basic Overflow');
+  P(S(
+    x, alpha, calc, shift, x, x, shift, rpar, n9, shift, rpar, n9, n9, n9,
+    calc, eq, ac, left, del, del, calc, eq, left, shift, dot
+  ));
+
+  // ---- BƯỚC 4 ----
+  const HEX_DIGIT_KEYS = {
+    "A": S(shift, n7, n3, n7),
+    "B": S(shift, n7, n3, n8),
+    "C": S(shift, n7, n3, n9),
+    "D": S(shift, n7, n3, neg),
+    "E": S(shift, n7, n3, dms),
+    "F": S(shift, n7, n3, recip),
+  };
+  const keySequence = char1.map(ch => HEX_DIGIT_KEYS[ch] || '').join(' ');
+  H('BƯỚC 4 · Lấy kí tự cần thiết và Gán biến');
+  P(keySequence);
+  P(`(${S(left, n9, del)})×${char1.length} ${del}×10 ${S(alpha, integral)}`);
+  P();
+  P("Màn hình Casio hiển thị:");
+  P("x:");
+
+  const variablesPrinted = new Set();
+  for (const ln of filledOutputs) {
+    if (ln.includes('=')) variablesPrinted.add(ln.split('=')[0].trim());
+  }
+
+  filledOutputs.forEach((ln, idx) => {
+    if (idx === filledOutputs.length - 1) P(ln);
+    else P(ln + ':');
+  });
+
+  const VAR_SELECT_KEYS = {
+    'A': S(alpha, neg),
+    'B': S(alpha, dms),
+    'C': S(alpha, recip),
+  };
+  P();
+  P("Cách nhập từng biến:");
+  filledOutputs.forEach((ln, idx) => {
+    let [label, value] = ln.split(/=(.*)/s);
+    label = label.trim(); value = value.trim();
+    const isLast = idx === filledOutputs.length - 1;
+    const keys = [VAR_SELECT_KEYS[label] || "", S(alpha, calc)];
+    for (const token of value.split(' ')) {
+      if (token === "×10") {
+        keys.push(exp10);
+      } else {
+        for (const ch of token) {
+          if (isDigit(ch)) keys.push(DIGITS[ch]);
+          else if (ch === '.') keys.push(dot);
+          else if (isAlpha(ch)) keys.push(right);
+        }
+      }
+    }
+    if (!isLast) keys.push(S(alpha, integral));
+    P(`• ${keys.filter(Boolean).join(' ')}`);
+  });
+  P();
+  P(`Rồi bấm: ${calc} (${eq})×${variablesPrinted.size + 1} lần`);
+
+  // ---- BƯỚC 5 ----
+  H('BƯỚC 5 · Vào mode 100an');
+  P(S(
+    x, alpha, calc, shift, x, x, shift, rpar, n9, shift, rpar, n9, calc, eq,
+    left, shift, dot, shift, dot, left, left, del, down, shift, n8, down,
+    n2, n6, left, left, right, n9, del, left, rpar, plus
+  ) + ' [100 số bất kì]');
+  P(S(calc, eq));
+
+  // ---- BƯỚC 6 ----
+  const n = variablesPrinted.size;
+  const atSigns = "@".repeat(n);
+  H(`BƯỚC 6 · Lấy "${atSigns}"`);
+  const PRE_KEYS = [
+    S(shift, n7, n4, n8),
+    S(shift, n7, n4, n9),
+    S(shift, n7, n1, n4),
+  ];
+  const VAR_NAMES = ['A', 'B', 'C'];
+  P(S(
+    x, alpha, calc, shift, x, x, shift, rpar, n9, shift, rpar, n9, calc, eq,
+    left, shift, dot, ...PRE_KEYS.slice(0, n)
+  ));
+  P(`(${S(left, n9, del)})×${n}`);
+  P();
+  P("Màn hình Casio hiển thị:");
+  P("123456789x:");
+  for (let k = 0; k < n; k++) {
+    P(`@=${VAR_NAMES[k]}${k < n - 1 ? ':' : ''}`);
+  }
+  P();
+  P("Cách làm:");
+  let step6 = S(
+    `${del}×10`, left, n1, n2, n3, n4, n5, n6, n7, n8, n9, right,
+    alpha, integral, right, alpha, calc, alpha, neg
+  );
+  for (let k = 1; k < n; k++) {
+    step6 += ' ' + S(alpha, integral, right, alpha, calc, VAR_SELECT_KEYS[VAR_NAMES[k]]);
+  }
+  P(step6);
+  P(`${calc} (${eq})×${n + 1} ${up}`);
+
+  // ---- BƯỚC 7 ----
+  H('BƯỚC 7 · Xóa Byte thừa');
+  let count = 0;
+  listLo = listLo.slice().reverse();
+  let buf7 = '';
+  for (const i of listLo) {
+    if (i === '20') {
+      if (count === 0) buf7 += `${del} `;
+      else buf7 += `${left}x${count} ${del} `;
+      count = 0;
+    } else if (i === '1.') {
+      if (count === 0) buf7 += `${del}x2 `;
+      else buf7 += `${left}x${count} ${del}x2 `;
+      count = 0;
+    } else if (i === '1.0000') {
+      if (count !== 0) buf7 += `${left}x${count} `;
+      count = 0;
+    } else if (i === '×10') {
+      // bỏ qua
+    } else if (i === 'F4') {
+      // bỏ qua
+    } else {
+      count += 1;
+    }
+  }
+  P(buf7.replace(/\s+$/,'') + ` ${left}x5`);
+
+  // ---- BƯỚC 8 ----
+  H('BƯỚC 8 · Gán kí tự và hoàn thiện Hackstring');
+  const keys8 = [];
+  for (const char of ds) {
+    if (char in foundKeys) {
+      keys8.push(`${foundKeys[char]}`);
+    }
+    if (!(char in foundKeys)) {
+      if (char === " ") keys8.push(S(shift, n8, n3, n4));
+      if (!J.includes(char)) keys8.push(right);
+      if (J.includes(char)) {
+        if (CHARST.includes(char)) keys8.push(right);
+      }
+    }
+  }
+  P(keys8.join(' '));
+
+  const realSpaceCount = (originalLine.match(/ /g) || []).length;
+  let specialCharCount = 0;
+  for (const ch of originalLine) if (!J.includes(ch)) specialCharCount++;
+  const nValue = originalLine.length - realSpaceCount - specialCharCount;
+  P(`[${nValue} số bất kì] ${S(shift, lpar, right, n2, x)}`);
+
+  // ---- BƯỚC CUỐI ----
+  H('BƯỚC CUỐI');
+  P(S(calc, eq));
+
+  return buf;
+}
+
+function cleanOutput(text) {
+  return text
+    .split('\n')
+    .map(line => {
+      // gom nhiều dấu cách liên tiếp thành 1, xoá dấu cách thừa ở đầu/cuối dòng
+      return line.replace(/[ \t]{2,}/g, ' ').trim();
+    })
+    .join('\n')
+    // gom nhiều dòng trống liên tiếp thành tối đa 1 dòng trống
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function compile() {
+  const code = input.value;
+  const outEl = document.getElementById("out");
+  if (!code) {
+    outEl.value = "";
+    rawOutput = "";
+    if (copyBtn) copyBtn.disabled = true;
+    return;
+  }
+  rawOutput = cleanOutput(spellVarVn(code));
+  outEl.value = rawOutput;
+  if (copyBtn) copyBtn.disabled = !rawOutput;
+}
+
+
+</script>
+
+<hr>
+<br>
+</body>
+</html>
